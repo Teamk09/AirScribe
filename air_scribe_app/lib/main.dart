@@ -94,6 +94,7 @@ class _SensorPageState extends State<SensorPage> {
 
 
   void _startGyroscopeListener() {
+    // Revert to default sensor update interval
     _gyroscopeSubscription = gyroscopeEvents.listen(
       (GyroscopeEvent event) {
         setState(() {
@@ -116,7 +117,7 @@ class _SensorPageState extends State<SensorPage> {
       },
       cancelOnError: true,
     );
-     print('Gyroscope listener started.');
+     print('Gyroscope listener started.'); // Reverted log message
   }
 
   @override
