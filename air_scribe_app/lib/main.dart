@@ -16,8 +16,17 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'AirScribe Sensor App',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        // Explicitly use Material 3 and define a color scheme
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.light,
       ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
+        brightness: Brightness.dark,
+      ),
+      themeMode: ThemeMode.system, // Respect system theme
       home: const SensorPage(),
     );
   }
@@ -31,6 +40,7 @@ class SensorPage extends StatefulWidget {
 }
 
 class _SensorPageState extends State<SensorPage> {
+  // Restore WebSocket and status variables if they were missing
   final String _serverUrl = 'ws://192.168.0.193:8080';
   IOWebSocketChannel? _channel;
   StreamSubscription? _gyroscopeSubscription;
@@ -44,69 +54,51 @@ class _SensorPageState extends State<SensorPage> {
     _startGyroscopeListener();
   }
 
+  // Restore WebSocket connection logic if it was missing
   void _connectWebSocket() {
     try {
       _channel = IOWebSocketChannel.connect(Uri.parse(_serverUrl));
       setState(() {
         _status = 'Connected to $_serverUrl';
       });
-      // Listen for messages from the server
       _channel?.stream.listen(
-        (message) {
-          print('Received: $message');
-          // Handle incoming messages
-        },
+        (message) { print('Received: $message'); },
         onDone: () {
-          setState(() {
-            _status = 'Disconnected';
-          });
+          setState(() { _status = 'Disconnected'; });
           print('WebSocket disconnected');
-          // Attempt to reconnect or handle disconnection
           _reconnectWebSocket();
         },
         onError: (error) {
-          setState(() {
-            _status = 'Connection Error: $error';
-          });
+          setState(() { _status = 'Connection Error: $error'; });
           print('WebSocket error: $error');
-          // Attempt to reconnect or handle error
-           _reconnectWebSocket();
+          _reconnectWebSocket();
         },
       );
     } catch (e) {
-      setState(() {
-        _status = 'Connection Failed: $e';
-      });
+      setState(() { _status = 'Connection Failed: $e'; });
       print('Failed to connect: $e');
-       _reconnectWebSocket(); // Attempt to reconnect on initial failure
+      _reconnectWebSocket();
     }
   }
 
   void _reconnectWebSocket() {
-    // Simple reconnect logic with a delay
     print('Attempting to reconnect in 5 seconds...');
     Future.delayed(const Duration(seconds: 5), () {
-       if (mounted) { // Check if the widget is still in the tree
-           _connectWebSocket();
-       }
+       if (mounted) _connectWebSocket();
     });
   }
 
-
   void _startGyroscopeListener() {
-    // Revert to default sensor update interval
-    _gyroscopeSubscription = gyroscopeEvents.listen(
+    // Always send data when connected
+    _gyroscopeSubscription = gyroscopeEventStream().listen(
       (GyroscopeEvent event) {
         setState(() {
-          _gyroscopeEvent = event;
+          _gyroscopeEvent = event; // Update UI display
         });
+        // Always send data if connected
         if (_channel != null && _channel?.closeCode == null) {
-          // Send gyroscope data as a JSON string
           final data = {'x': event.x, 'y': event.y, 'z': event.z};
           _channel?.sink.add(jsonEncode(data));
-           print('Sent: ${jsonEncode(data)}'); // Log sent data
-        } else {
-           print('Cannot send data: WebSocket not connected.');
         }
       },
       onError: (error) {
@@ -117,39 +109,114 @@ class _SensorPageState extends State<SensorPage> {
       },
       cancelOnError: true,
     );
-     print('Gyroscope listener started.'); // Reverted log message
+     print('Gyroscope listener started using gyroscopeEventStream().');
   }
 
   @override
   void dispose() {
     _gyroscopeSubscription?.cancel();
     _channel?.sink.close();
-    print('Gyroscope listener stopped and WebSocket closed.');
+    print('Listeners stopped and WebSocket closed.');
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    bool isConnected = _channel != null && _channel?.closeCode == null && _status.startsWith('Connected');
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AirScribe Sensors'),
+        title: const Text('AirScribe Sensor'),
+        // Add a connection status icon to the AppBar
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Icon(
+              isConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+              color: isConnected ? Colors.green : theme.colorScheme.error,
+            ),
+          ),
+        ],
       ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(_status),
-            const SizedBox(height: 20),
-            if (_gyroscopeEvent != null)
-              Text(
-                'Gyroscope:\nX: ${_gyroscopeEvent!.x.toStringAsFixed(2)}\nY: ${_gyroscopeEvent!.y.toStringAsFixed(2)}\nZ: ${_gyroscopeEvent!.z.toStringAsFixed(2)}',
-                textAlign: TextAlign.center,
-              )
-            else
-              const Text('Waiting for gyroscope data...'),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Card(
+            elevation: 4.0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min, // Card size wraps content
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  // Improved Status Display
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isConnected ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+                        color: isConnected ? Colors.green : theme.colorScheme.error,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _status,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: isConnected ? Colors.green : theme.colorScheme.error,
+                          ),
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Divider(height: 1, color: theme.dividerColor.withOpacity(0.5)),
+                  const SizedBox(height: 24),
+                  // Gyroscope Data Display
+                  Text(
+                    'Gyroscope Data',
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 16),
+                  if (_gyroscopeEvent != null)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildGyroAxis('X', _gyroscopeEvent!.x, theme),
+                        _buildGyroAxis('Y', _gyroscopeEvent!.y, theme),
+                        _buildGyroAxis('Z', _gyroscopeEvent!.z, theme),
+                      ],
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                        const SizedBox(width: 12),
+                        Text('Waiting for data...', style: theme.textTheme.bodyMedium),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  // Helper widget to display each gyroscope axis
+  Widget _buildGyroAxis(String axis, double value, ThemeData theme) {
+    return Column(
+      children: [
+        Text(axis, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary)),
+        const SizedBox(height: 4),
+        Text(value.toStringAsFixed(2), style: theme.textTheme.bodyLarge),
+      ],
     );
   }
 }

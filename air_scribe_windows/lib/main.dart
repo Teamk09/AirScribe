@@ -18,9 +18,17 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'AirScribe Whiteboard',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        // Explicitly use Material 3 and define a color scheme
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
+        brightness: Brightness.light,
       ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue, brightness: Brightness.dark),
+        brightness: Brightness.dark,
+      ),
+      themeMode: ThemeMode.system, // Respect system theme
       home: const WhiteboardPage(),
     );
   }
@@ -38,11 +46,11 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   WebSocketChannel? _clientChannel;
   String _ipAddress = 'Fetching IP...';
   String _status = 'Server not running';
-  final List<Offset?> _points = <Offset?>[]; // Store points for drawing lines
-  Offset? _currentPosition; // Current drawing cursor position
-  Size _whiteboardSize = Size.zero; // Size of the drawing area
-  final double _sensitivity = 50.0; // Adjust sensitivity of gyro movement
-  final int _port = 8080; // Same port as in the client app
+  final List<Offset?> _points = <Offset?>[];
+  Offset? _currentPosition;
+  Size _whiteboardSize = Size.zero;
+  final double _sensitivity = 50.0;
+  final int _port = 8080;
 
   // Variables for smoothing
   final int _smoothingWindowSize = 3; // Number of samples to average
@@ -76,15 +84,14 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           _status = 'Client Connected';
           // Reset drawing state on new connection
           _points.clear();
+          _recentDx.clear(); // Clear smoothing buffers
+          _recentDy.clear();
           if (_whiteboardSize != Size.zero) {
              _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
-             _points.add(_currentPosition);
+             _points.add(_currentPosition); // Start line at center
           } else {
-             _currentPosition = null; 
+             _currentPosition = null;
           }
-          // Clear smoothing buffers on new connection
-          _recentDx.clear();
-          _recentDy.clear();
         });
         print('Client connected!');
 
@@ -92,17 +99,18 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           (message) {
             try {
               final data = jsonDecode(message);
+              // Directly check for gyroscope data map
               if (data is Map<String, dynamic> &&
                   data.containsKey('x') && data['x'] is num &&
                   data.containsKey('y') && data['y'] is num &&
                   data.containsKey('z') && data['z'] is num)
               {
-                  setState(() {
-                      _updateDrawing(data); // Process gyro data for drawing
-                  });
-                  // print('Received: $data'); // Optional: reduce console noise
+                 setState(() {
+                     _updateDrawing(data); // Process gyro data for drawing
+                 });
               } else {
-                  print('Received invalid data format: $message');
+                 // Log unexpected message format
+                 print('Received unexpected data format: $message');
               }
             } catch (e) {
               print('Error decoding message: $e');
@@ -112,7 +120,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             setState(() {
               _status = 'Client Disconnected';
               _clientChannel = null;
-              // Add a null to break the line when client disconnects
+              // Add null to break the line on disconnect
               if (_points.isNotEmpty && _points.last != null) {
                  _points.add(null);
               }
@@ -123,7 +131,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             setState(() {
               _status = 'Client Error: $error';
               _clientChannel = null;
-               // Add a null to break the line on error
+              // Add null to break the line on error
               if (_points.isNotEmpty && _points.last != null) {
                  _points.add(null);
               }
@@ -151,11 +159,14 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   }
 
   void _updateDrawing(Map<String, dynamic> gyroData) {
-      if (_currentPosition == null || _whiteboardSize == Size.zero) return; // Don't draw if position/size unknown
+      // This function now runs for all received gyro data
+      if (_currentPosition == null || _whiteboardSize == Size.zero) return;
 
       // Calculate raw dx and dy based on gyro data
-      final double rawDx = -gyroData['z'] * _sensitivity;
-      final double rawDy = -gyroData['x'] * _sensitivity;
+      final double gx = gyroData['x'];
+      final double gz = gyroData['z'];
+      final double rawDx = -gz * _sensitivity;
+      final double rawDy = -gx * _sensitivity;
 
       // Add current raw values to the smoothing buffers
       _recentDx.add(rawDx);
@@ -183,6 +194,8 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
       );
 
       _currentPosition = newPosition;
+
+      // Add point (always add when data is received)
       _points.add(_currentPosition);
 
       // Limit the number of points to prevent performance issues
@@ -198,9 +211,6 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   void _clearDrawing() {
       setState(() {
           _points.clear();
-          // Clear smoothing buffers as well
-          _recentDx.clear();
-          _recentDy.clear();
           if (_whiteboardSize != Size.zero) {
              _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
           } else {
@@ -220,70 +230,114 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    bool isConnected = _clientChannel != null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('AirScribe Whiteboard'),
+        backgroundColor: theme.colorScheme.surfaceVariant, // Subtle AppBar background
         actions: [
-           // Add a clear button
-           IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: 'Clear Drawing',
-              onPressed: _clientChannel != null ? _clearDrawing : null, // Only enable when connected
-           ),
+          // Keep the clear button, maybe style it slightly
+          IconButton(
+             icon: const Icon(Icons.delete_sweep_outlined),
+             tooltip: 'Clear Drawing',
+             color: isConnected ? theme.colorScheme.primary : theme.disabledColor,
+             onPressed: isConnected ? _clearDrawing : null,
+          ),
+          const SizedBox(width: 8), // Add spacing
         ],
       ),
       body: Column(
         children: [
+          // Status Area in a Card
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                 Text('Server IP: $_ipAddress'),
-                 Text('Status: $_status'),
-                 const SizedBox(height: 10),
-                 if (_clientChannel == null && _server != null)
-                    const Text('Waiting for client connection...'),
-              ],
+            padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+            child: Card(
+              elevation: 2.0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                child: Row(
+                  children: [
+                    Icon(
+                      isConnected ? Icons.lan_rounded : Icons.lan_outlined,
+                      color: isConnected ? Colors.green : theme.disabledColor,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Server IP: $_ipAddress',
+                            style: theme.textTheme.bodyMedium,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Status: $_status',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: isConnected ? Colors.green : theme.colorScheme.onSurfaceVariant,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
+          // Whiteboard Area
           Expanded(
-            // Use LayoutBuilder to get the size of the drawing area
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final newSize = Size(constraints.maxWidth, constraints.maxHeight);
-                if (_whiteboardSize != newSize) {
-                  // Update size and potentially initialize position if needed
-                  // Use addPostFrameCallback to avoid calling setState during build
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                     if (mounted) { // Check if widget is still mounted
-                        setState(() {
-                           _whiteboardSize = newSize;
-                           // Initialize or re-center position if client is connected but position wasn't set
-                           if (_currentPosition == null && _clientChannel != null) {
-                              _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
-                              // Avoid adding point here if _points might already exist from previous size
-                              if (_points.isEmpty) _points.add(_currentPosition);
-                           }
-                        });
-                     }
-                  });
-                }
-                return Container(
-                  margin: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0), // Adjust margin
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey),
-                    color: Colors.white,
-                  ),
-                  // Clip prevents drawing outside the bounds
-                  child: ClipRect(
-                    child: CustomPaint(
-                      painter: WhiteboardPainter(points: _points),
-                      size: _whiteboardSize, // Provide the size to the painter
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final newSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  if (_whiteboardSize != newSize) {
+                    // Update size and potentially initialize position if needed
+                    // Use addPostFrameCallback to avoid calling setState during build
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                       if (mounted) { // Check if widget is still mounted
+                          setState(() {
+                             _whiteboardSize = newSize;
+                             // Initialize or re-center position if client is connected but position wasn't set
+                             if (_currentPosition == null && _clientChannel != null) {
+                                _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
+                                // Avoid adding point here if _points might already exist from previous size
+                                if (_points.isEmpty) _points.add(_currentPosition);
+                             }
+                          });
+                       }
+                    });
+                  }
+                  return Container(
+                    // Use Card elevation/border for a defined drawing area
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface, // Whiteboard background
+                      border: Border.all(color: theme.dividerColor.withOpacity(0.5)),
+                      borderRadius: BorderRadius.circular(8.0),
+                      boxShadow: [
+                         BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 4.0,
+                            offset: const Offset(0, 2),
+                         )
+                      ]
                     ),
-                  ),
-                );
-              },
+                    // Clip prevents drawing outside the bounds
+                    child: ClipRRect( // Use ClipRRect for rounded corners
+                      borderRadius: BorderRadius.circular(8.0),
+                      child: CustomPaint(
+                        painter: WhiteboardPainter(points: _points),
+                        size: _whiteboardSize,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -295,15 +349,22 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
 // Custom Painter for the Whiteboard
 class WhiteboardPainter extends CustomPainter {
   final List<Offset?> points;
+  final Color lineColor;
+  final double strokeWidth;
 
-  WhiteboardPainter({required this.points});
+  // Make painter customizable
+  WhiteboardPainter({
+    required this.points,
+    this.lineColor = Colors.black,
+    this.strokeWidth = 3.0, // Slightly thinner default
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.black
+      ..color = lineColor
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 4.0; // Adjust line thickness
+      ..strokeWidth = strokeWidth;
 
     for (int i = 0; i < points.length - 1; i++) {
       if (points[i] != null && points[i + 1] != null) {
@@ -324,7 +385,9 @@ class WhiteboardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant WhiteboardPainter oldDelegate) {
-    // Repaint whenever the points list changes
-    return oldDelegate.points != points;
+    // Repaint if points, color, or stroke width change
+    return oldDelegate.points != points ||
+           oldDelegate.lineColor != lineColor ||
+           oldDelegate.strokeWidth != strokeWidth;
   }
 }
