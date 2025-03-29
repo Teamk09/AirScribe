@@ -41,8 +41,13 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   final List<Offset?> _points = <Offset?>[]; // Store points for drawing lines
   Offset? _currentPosition; // Current drawing cursor position
   Size _whiteboardSize = Size.zero; // Size of the drawing area
-  final double _sensitivity = 100.0; // Adjust sensitivity of gyro movement
+  final double _sensitivity = 50.0; // Adjust sensitivity of gyro movement
   final int _port = 8080; // Same port as in the client app
+
+  // Variables for smoothing
+  final int _smoothingWindowSize = 3; // Number of samples to average
+  final List<double> _recentDx = [];
+  final List<double> _recentDy = [];
 
   @override
   void initState() {
@@ -77,6 +82,9 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           } else {
              _currentPosition = null; 
           }
+          // Clear smoothing buffers on new connection
+          _recentDx.clear();
+          _recentDy.clear();
         });
         print('Client connected!');
 
@@ -145,15 +153,28 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   void _updateDrawing(Map<String, dynamic> gyroData) {
       if (_currentPosition == null || _whiteboardSize == Size.zero) return; // Don't draw if position/size unknown
 
-      // New mapping for upright orientation:
-      // Gyro Z rotation (twist) -> Screen X movement (Inverted)
-      // Gyro X rotation (tilt forward/back) -> Screen Y movement
-      // Adjust signs and sensitivity as needed for intuitive control.
-      final double dx = -gyroData['z'] * _sensitivity; // Negated Z for inverted horizontal control
-      final double dy = -gyroData['x'] * _sensitivity;
+      // Calculate raw dx and dy based on gyro data
+      final double rawDx = -gyroData['z'] * _sensitivity;
+      final double rawDy = -gyroData['x'] * _sensitivity;
 
-      // Calculate the new position
-      Offset newPosition = _currentPosition!.translate(dx, dy);
+      // Add current raw values to the smoothing buffers
+      _recentDx.add(rawDx);
+      _recentDy.add(rawDy);
+
+      // Keep buffers at the desired window size
+      if (_recentDx.length > _smoothingWindowSize) {
+        _recentDx.removeAt(0);
+      }
+      if (_recentDy.length > _smoothingWindowSize) {
+        _recentDy.removeAt(0);
+      }
+
+      // Calculate the average (smoothed) dx and dy
+      final double smoothedDx = _recentDx.isEmpty ? 0.0 : _recentDx.reduce((a, b) => a + b) / _recentDx.length;
+      final double smoothedDy = _recentDy.isEmpty ? 0.0 : _recentDy.reduce((a, b) => a + b) / _recentDy.length;
+
+      // Calculate the new position using smoothed values
+      Offset newPosition = _currentPosition!.translate(smoothedDx, smoothedDy);
 
       // Clamp the position to stay within the whiteboard bounds
       newPosition = Offset(
@@ -177,6 +198,9 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   void _clearDrawing() {
       setState(() {
           _points.clear();
+          // Clear smoothing buffers as well
+          _recentDx.clear();
+          _recentDy.clear();
           if (_whiteboardSize != Size.zero) {
              _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
           } else {
