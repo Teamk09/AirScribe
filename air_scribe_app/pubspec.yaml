@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   sensors_plus: ^5.0.1
+  web_socket_channel: ^2.4.0
 
 dev_dependencies:
   flutter_test:
