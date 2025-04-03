@@ -362,7 +362,7 @@ class WhiteboardPainter extends CustomPainter {
 
   WhiteboardPainter({
     required this.points,
-    this.lineColor = const Color.fromARGB(255, 0, 0, 0),
+    this.lineColor = const Color.fromARGB(255, 255, 255, 255),
     this.strokeWidth = 3.0,
   });
 
