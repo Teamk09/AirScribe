@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:web_socket_channel/io.dart';
+import 'ip_input_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -27,29 +28,31 @@ class MyApp extends StatelessWidget {
         brightness: Brightness.dark,
       ),
       themeMode: ThemeMode.system, // Respect system theme
-      home: const SensorPage(),
+      home: const IpInputPage(),
     );
   }
 }
 
 class SensorPage extends StatefulWidget {
-  const SensorPage({super.key});
+  final String serverIp;
+
+  const SensorPage({required this.serverIp, super.key});
 
   @override
   State<SensorPage> createState() => _SensorPageState();
 }
 
 class _SensorPageState extends State<SensorPage> {
-  // Restore WebSocket and status variables if they were missing
-  final String _serverUrl = 'ws://192.168.0.193:8080';
   IOWebSocketChannel? _channel;
   StreamSubscription? _gyroscopeSubscription;
   String _status = 'Connecting...';
   GyroscopeEvent? _gyroscopeEvent;
+  late String _serverUrl;
 
   @override
   void initState() {
     super.initState();
+    _serverUrl = 'ws://${widget.serverIp}:8080'; 
     _connectWebSocket();
     _startGyroscopeListener();
   }

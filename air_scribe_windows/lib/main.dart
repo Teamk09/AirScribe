@@ -16,19 +16,22 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'AirScribe Whiteboard',
       theme: ThemeData(
-        // Explicitly use Material 3 and define a color scheme
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
         brightness: Brightness.light,
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.lightBlue,
+          brightness: Brightness.dark,
+        ),
         brightness: Brightness.dark,
       ),
-      themeMode: ThemeMode.system, // Respect system theme
+      themeMode: ThemeMode.system,
       home: const WhiteboardPage(),
     );
   }
@@ -49,11 +52,11 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   final List<Offset?> _points = <Offset?>[];
   Offset? _currentPosition;
   Size _whiteboardSize = Size.zero;
-  final double _sensitivity = 50.0;
+  final double _sensitivity = 8000.0;
   final int _port = 8080;
 
   // Variables for smoothing
-  final int _smoothingWindowSize = 3; // Number of samples to average
+  final int _smoothingWindowSize = 3;
   final List<double> _recentDx = [];
   final List<double> _recentDy = [];
 
@@ -87,10 +90,13 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           _recentDx.clear(); // Clear smoothing buffers
           _recentDy.clear();
           if (_whiteboardSize != Size.zero) {
-             _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
-             _points.add(_currentPosition); // Start line at center
+            _currentPosition = Offset(
+              _whiteboardSize.width / 2,
+              _whiteboardSize.height / 2,
+            );
+            _points.add(_currentPosition); // Start line at center
           } else {
-             _currentPosition = null;
+            _currentPosition = null;
           }
         });
         print('Client connected!');
@@ -101,16 +107,18 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
               final data = jsonDecode(message);
               // Directly check for gyroscope data map
               if (data is Map<String, dynamic> &&
-                  data.containsKey('x') && data['x'] is num &&
-                  data.containsKey('y') && data['y'] is num &&
-                  data.containsKey('z') && data['z'] is num)
-              {
-                 setState(() {
-                     _updateDrawing(data); // Process gyro data for drawing
-                 });
+                  data.containsKey('x') &&
+                  data['x'] is num &&
+                  data.containsKey('y') &&
+                  data['y'] is num &&
+                  data.containsKey('z') &&
+                  data['z'] is num) {
+                setState(() {
+                  _updateDrawing(data); // Process gyro data for drawing
+                });
               } else {
-                 // Log unexpected message format
-                 print('Received unexpected data format: $message');
+                // Log unexpected message format
+                print('Received unexpected data format: $message');
               }
             } catch (e) {
               print('Error decoding message: $e');
@@ -122,7 +130,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
               _clientChannel = null;
               // Add null to break the line on disconnect
               if (_points.isNotEmpty && _points.last != null) {
-                 _points.add(null);
+                _points.add(null);
               }
             });
             print('Client disconnected');
@@ -133,7 +141,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
               _clientChannel = null;
               // Add null to break the line on error
               if (_points.isNotEmpty && _points.last != null) {
-                 _points.add(null);
+                _points.add(null);
               }
             });
             print('Client error: $error');
@@ -148,7 +156,6 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
         _status = 'Server running at ws://$_ipAddress';
       });
       print('Server running on ws://$_ipAddress');
-
     } catch (e) {
       setState(() {
         _status = 'Error starting server: $e';
@@ -159,66 +166,74 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   }
 
   void _updateDrawing(Map<String, dynamic> gyroData) {
-      // This function now runs for all received gyro data
-      if (_currentPosition == null || _whiteboardSize == Size.zero) return;
+    // This function now runs for all received gyro data
+    if (_currentPosition == null || _whiteboardSize == Size.zero) return;
 
-      // Calculate raw dx and dy based on gyro data
-      final double gx = gyroData['x'];
-      final double gz = gyroData['z'];
-      final double rawDx = -gz * _sensitivity;
-      final double rawDy = -gx * _sensitivity;
+    // Calculate raw dx and dy based on gyro data
+    final double gx = gyroData['x'];
+    final double gz = gyroData['z'];
+    final double rawDx = -gz * _sensitivity;
+    final double rawDy = -gx * _sensitivity;
 
-      // Add current raw values to the smoothing buffers
-      _recentDx.add(rawDx);
-      _recentDy.add(rawDy);
+    // Add current raw values to the smoothing buffers
+    _recentDx.add(rawDx);
+    _recentDy.add(rawDy);
 
-      // Keep buffers at the desired window size
-      if (_recentDx.length > _smoothingWindowSize) {
-        _recentDx.removeAt(0);
-      }
-      if (_recentDy.length > _smoothingWindowSize) {
-        _recentDy.removeAt(0);
-      }
+    // Keep buffers at the desired window size
+    if (_recentDx.length > _smoothingWindowSize) {
+      _recentDx.removeAt(0);
+    }
+    if (_recentDy.length > _smoothingWindowSize) {
+      _recentDy.removeAt(0);
+    }
 
-      // Calculate the average (smoothed) dx and dy
-      final double smoothedDx = _recentDx.isEmpty ? 0.0 : _recentDx.reduce((a, b) => a + b) / _recentDx.length;
-      final double smoothedDy = _recentDy.isEmpty ? 0.0 : _recentDy.reduce((a, b) => a + b) / _recentDy.length;
+    // Calculate the average (smoothed) dx and dy
+    final double smoothedDx =
+        _recentDx.isEmpty
+            ? 0.0
+            : _recentDx.reduce((a, b) => a + b) / _recentDx.length;
+    final double smoothedDy =
+        _recentDy.isEmpty
+            ? 0.0
+            : _recentDy.reduce((a, b) => a + b) / _recentDy.length;
 
-      // Calculate the new position using smoothed values
-      Offset newPosition = _currentPosition!.translate(smoothedDx, smoothedDy);
+    // Calculate the new position using smoothed values
+    Offset newPosition = _currentPosition!.translate(smoothedDx, smoothedDy);
 
-      // Clamp the position to stay within the whiteboard bounds
-      newPosition = Offset(
-          newPosition.dx.clamp(0.0, _whiteboardSize.width),
-          newPosition.dy.clamp(0.0, _whiteboardSize.height),
-      );
+    // Clamp the position to stay within the whiteboard bounds
+    newPosition = Offset(
+      newPosition.dx.clamp(0.0, _whiteboardSize.width),
+      newPosition.dy.clamp(0.0, _whiteboardSize.height),
+    );
 
-      _currentPosition = newPosition;
+    _currentPosition = newPosition;
 
-      // Add point (always add when data is received)
-      _points.add(_currentPosition);
+    // Add point (always add when data is received)
+    _points.add(_currentPosition);
 
-      // Limit the number of points to prevent performance issues
-      const int maxPoints = 5000; // Keep the last 5000 points
-      const int pointsToRemove = 1000; // Remove points in chunks
-      if (_points.length > maxPoints) {
-        // Remove older points efficiently
-        _points.removeRange(0, pointsToRemove);
-        print('Optimized points list: ${_points.length} points remaining.');
-      }
+    // Limit the number of points to prevent performance issues
+    const int maxPoints = 5000; // Keep the last 5000 points
+    const int pointsToRemove = 1000; // Remove points in chunks
+    if (_points.length > maxPoints) {
+      // Remove older points efficiently
+      _points.removeRange(0, pointsToRemove);
+      print('Optimized points list: ${_points.length} points remaining.');
+    }
   }
 
   void _clearDrawing() {
-      setState(() {
-          _points.clear();
-          if (_whiteboardSize != Size.zero) {
-             _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
-          } else {
-             _currentPosition = null;
-          }
-      });
+    setState(() {
+      _points.clear();
+      if (_whiteboardSize != Size.zero) {
+        _currentPosition = Offset(
+          _whiteboardSize.width / 2,
+          _whiteboardSize.height / 2,
+        );
+      } else {
+        _currentPosition = null;
+      }
+    });
   }
-
 
   @override
   void dispose() {
@@ -236,14 +251,16 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('AirScribe Whiteboard'),
-        backgroundColor: theme.colorScheme.surfaceVariant, // Subtle AppBar background
+        backgroundColor:
+            theme.colorScheme.surfaceVariant, // Subtle AppBar background
         actions: [
           // Keep the clear button, maybe style it slightly
           IconButton(
-             icon: const Icon(Icons.delete_sweep_outlined),
-             tooltip: 'Clear Drawing',
-             color: isConnected ? theme.colorScheme.primary : theme.disabledColor,
-             onPressed: isConnected ? _clearDrawing : null,
+            icon: const Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Clear Drawing',
+            color:
+                isConnected ? theme.colorScheme.primary : theme.disabledColor,
+            onPressed: isConnected ? _clearDrawing : null,
           ),
           const SizedBox(width: 8), // Add spacing
         ],
@@ -255,9 +272,14 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
             child: Card(
               elevation: 2.0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.0),
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 12.0,
+                ),
                 child: Row(
                   children: [
                     Icon(
@@ -277,7 +299,10 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
                           Text(
                             'Status: $_status',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: isConnected ? Colors.green : theme.colorScheme.onSurfaceVariant,
+                              color:
+                                  isConnected
+                                      ? Colors.green
+                                      : theme.colorScheme.onSurfaceVariant,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -295,40 +320,51 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
               padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final newSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  final newSize = Size(
+                    constraints.maxWidth,
+                    constraints.maxHeight,
+                  );
                   if (_whiteboardSize != newSize) {
                     // Update size and potentially initialize position if needed
                     // Use addPostFrameCallback to avoid calling setState during build
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                       if (mounted) { // Check if widget is still mounted
-                          setState(() {
-                             _whiteboardSize = newSize;
-                             // Initialize or re-center position if client is connected but position wasn't set
-                             if (_currentPosition == null && _clientChannel != null) {
-                                _currentPosition = Offset(_whiteboardSize.width / 2, _whiteboardSize.height / 2);
-                                // Avoid adding point here if _points might already exist from previous size
-                                if (_points.isEmpty) _points.add(_currentPosition);
-                             }
-                          });
-                       }
+                      if (mounted) {
+                        // Check if widget is still mounted
+                        setState(() {
+                          _whiteboardSize = newSize;
+                          // Initialize or re-center position if client is connected but position wasn't set
+                          if (_currentPosition == null &&
+                              _clientChannel != null) {
+                            _currentPosition = Offset(
+                              _whiteboardSize.width / 2,
+                              _whiteboardSize.height / 2,
+                            );
+                            // Avoid adding point here if _points might already exist from previous size
+                            if (_points.isEmpty) _points.add(_currentPosition);
+                          }
+                        });
+                      }
                     });
                   }
                   return Container(
                     // Use Card elevation/border for a defined drawing area
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surface, // Whiteboard background
-                      border: Border.all(color: theme.dividerColor.withOpacity(0.5)),
+                      border: Border.all(
+                        color: theme.dividerColor.withOpacity(0.5),
+                      ),
                       borderRadius: BorderRadius.circular(8.0),
                       boxShadow: [
-                         BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 4.0,
-                            offset: const Offset(0, 2),
-                         )
-                      ]
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 4.0,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     // Clip prevents drawing outside the bounds
-                    child: ClipRRect( // Use ClipRRect for rounded corners
+                    child: ClipRRect(
+                      // Use ClipRRect for rounded corners
                       borderRadius: BorderRadius.circular(8.0),
                       child: CustomPaint(
                         painter: WhiteboardPainter(points: _points),
@@ -355,16 +391,17 @@ class WhiteboardPainter extends CustomPainter {
   // Make painter customizable
   WhiteboardPainter({
     required this.points,
-    this.lineColor = Colors.black,
+    this.lineColor = const Color.fromARGB(255, 255, 255, 255),
     this.strokeWidth = 3.0, // Slightly thinner default
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = lineColor
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = strokeWidth;
+    final paint =
+        Paint()
+          ..color = lineColor
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = strokeWidth;
 
     for (int i = 0; i < points.length - 1; i++) {
       if (points[i] != null && points[i + 1] != null) {
@@ -377,17 +414,17 @@ class WhiteboardPainter extends CustomPainter {
         // Alternatively, just do nothing to create a break
       }
     }
-     // Optionally draw the last point if it's not null and the list isn't empty
-     // if (points.isNotEmpty && points.last != null) {
-     //    canvas.drawCircle(points.last!, paint.strokeWidth / 2, paint);
-     // }
+    // Optionally draw the last point if it's not null and the list isn't empty
+    // if (points.isNotEmpty && points.last != null) {
+    //    canvas.drawCircle(points.last!, paint.strokeWidth / 2, paint);
+    // }
   }
 
   @override
   bool shouldRepaint(covariant WhiteboardPainter oldDelegate) {
     // Repaint if points, color, or stroke width change
     return oldDelegate.points != points ||
-           oldDelegate.lineColor != lineColor ||
-           oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
