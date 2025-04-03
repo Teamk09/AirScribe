@@ -17,7 +17,6 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'AirScribe Sensor App',
       theme: ThemeData(
-        // Explicitly use Material 3 and define a color scheme
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         brightness: Brightness.light,
@@ -27,7 +26,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
         brightness: Brightness.dark,
       ),
-      themeMode: ThemeMode.system, // Respect system theme
+      themeMode: ThemeMode.system,
       home: const IpInputPage(),
     );
   }
@@ -45,19 +44,22 @@ class SensorPage extends StatefulWidget {
 class _SensorPageState extends State<SensorPage> {
   IOWebSocketChannel? _channel;
   StreamSubscription? _gyroscopeSubscription;
+  StreamSubscription? _userAccelerometerSubscription;
   String _status = 'Connecting...';
   GyroscopeEvent? _gyroscopeEvent;
+  UserAccelerometerEvent? _userAccelerometerEvent; 
   late String _serverUrl;
+
+  final Duration _samplingPeriod = Duration(milliseconds: 50);
 
   @override
   void initState() {
     super.initState();
-    _serverUrl = 'ws://${widget.serverIp}:8080'; 
+    _serverUrl = 'ws://${widget.serverIp}:8080';
     _connectWebSocket();
-    _startGyroscopeListener();
+    _startSensorListeners();
   }
 
-  // Restore WebSocket connection logic if it was missing
   void _connectWebSocket() {
     try {
       _channel = IOWebSocketChannel.connect(Uri.parse(_serverUrl));
@@ -91,33 +93,61 @@ class _SensorPageState extends State<SensorPage> {
     });
   }
 
-  void _startGyroscopeListener() {
-    // Always send data when connected
-    _gyroscopeSubscription = gyroscopeEventStream().listen(
+  void _startSensorListeners() {
+    _gyroscopeSubscription = gyroscopeEventStream(samplingPeriod: _samplingPeriod).listen(
       (GyroscopeEvent event) {
         setState(() {
-          _gyroscopeEvent = event; // Update UI display
+          _gyroscopeEvent = event;
         });
-        // Always send data if connected
-        if (_channel != null && _channel?.closeCode == null) {
-          final data = {'x': event.x, 'y': event.y, 'z': event.z};
-          _channel?.sink.add(jsonEncode(data));
-        }
+        _sendSensorData(); 
       },
       onError: (error) {
         print('Gyroscope error: $error');
-        setState(() {
-          _status = 'Gyroscope Error: $error';
-        });
+        setState(() { _status = 'Gyroscope Error: $error'; });
       },
       cancelOnError: true,
     );
-     print('Gyroscope listener started using gyroscopeEventStream().');
+    print('Gyroscope listener started with samplingPeriod: $_samplingPeriod.');
+
+    _userAccelerometerSubscription = userAccelerometerEventStream(samplingPeriod: _samplingPeriod).listen(
+      (UserAccelerometerEvent event) {
+        setState(() {
+          _userAccelerometerEvent = event;
+        });
+        _sendSensorData(); 
+      },
+      onError: (error) {
+        print('User Accelerometer error: $error');
+        setState(() { _status = 'Accelerometer Error: $error'; });
+      },
+      cancelOnError: true,
+    );
+    print('User Accelerometer listener started with samplingPeriod: $_samplingPeriod.');
   }
+
+  void _sendSensorData() {
+    if (_channel != null && _channel?.closeCode == null && _gyroscopeEvent != null && _userAccelerometerEvent != null) {
+      final data = {
+        'gyro': {
+          'x': _gyroscopeEvent!.x,
+          'y': _gyroscopeEvent!.y,
+          'z': _gyroscopeEvent!.z,
+        },
+        'accel': {
+          'x': _userAccelerometerEvent!.x,
+          'y': _userAccelerometerEvent!.y,
+          'z': _userAccelerometerEvent!.z,
+        },
+      };
+      _channel?.sink.add(jsonEncode(data));
+    }
+  }
+
 
   @override
   void dispose() {
     _gyroscopeSubscription?.cancel();
+    _userAccelerometerSubscription?.cancel(); 
     _channel?.sink.close();
     print('Listeners stopped and WebSocket closed.');
     super.dispose();
@@ -131,7 +161,6 @@ class _SensorPageState extends State<SensorPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('AirScribe Sensor'),
-        // Add a connection status icon to the AppBar
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
@@ -144,18 +173,17 @@ class _SensorPageState extends State<SensorPage> {
       ),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(16.0),
           child: Card(
             elevation: 4.0,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(16.0),
               child: Column(
-                mainAxisSize: MainAxisSize.min, // Card size wraps content
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  // Improved Status Display
-                  Row(
+                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
@@ -176,33 +204,39 @@ class _SensorPageState extends State<SensorPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
-                  Divider(height: 1, color: theme.dividerColor.withOpacity(0.5)),
-                  const SizedBox(height: 24),
-                  // Gyroscope Data Display
-                  Text(
-                    'Gyroscope Data',
-                    style: theme.textTheme.headlineSmall,
-                  ),
                   const SizedBox(height: 16),
+                  Divider(height: 1, color: theme.dividerColor.withOpacity(0.5)),
+                  const SizedBox(height: 16),
+
+                  Text('Gyroscope', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
                   if (_gyroscopeEvent != null)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildGyroAxis('X', _gyroscopeEvent!.x, theme),
-                        _buildGyroAxis('Y', _gyroscopeEvent!.y, theme),
-                        _buildGyroAxis('Z', _gyroscopeEvent!.z, theme),
+                        _buildSensorAxis('X', _gyroscopeEvent!.x, theme),
+                        _buildSensorAxis('Y', _gyroscopeEvent!.y, theme),
+                        _buildSensorAxis('Z', _gyroscopeEvent!.z, theme),
                       ],
                     )
                   else
+                    _buildWaitingIndicator(theme),
+
+                  const SizedBox(height: 16),
+
+                  Text('User Accelerometer', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  if (_userAccelerometerEvent != null)
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                        const SizedBox(width: 12),
-                        Text('Waiting for data...', style: theme.textTheme.bodyMedium),
+                        _buildSensorAxis('X', _userAccelerometerEvent!.x, theme),
+                        _buildSensorAxis('Y', _userAccelerometerEvent!.y, theme),
+                        _buildSensorAxis('Z', _userAccelerometerEvent!.z, theme),
                       ],
-                    ),
+                    )
+                  else
+                    _buildWaitingIndicator(theme),
                 ],
               ),
             ),
@@ -212,14 +246,24 @@ class _SensorPageState extends State<SensorPage> {
     );
   }
 
-  // Helper widget to display each gyroscope axis
-  Widget _buildGyroAxis(String axis, double value, ThemeData theme) {
+  Widget _buildSensorAxis(String axis, double value, ThemeData theme) {
     return Column(
       children: [
-        Text(axis, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary)),
-        const SizedBox(height: 4),
-        Text(value.toStringAsFixed(2), style: theme.textTheme.bodyLarge),
+        Text(axis, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary)),
+        const SizedBox(height: 2),
+        Text(value.toStringAsFixed(2), style: theme.textTheme.bodyMedium),
       ],
     );
+  }
+
+  Widget _buildWaitingIndicator(ThemeData theme) {
+     return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 8),
+          Text('Waiting...', style: theme.textTheme.bodySmall),
+        ],
+      );
   }
 }
