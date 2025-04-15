@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+air_scribe_windows/windows/flutter/generated_plugins.cmake
+air_scribe_windows/windows/flutter/generated_plugin_registrant.h
+air_scribe_windows/windows/flutter/generated_plugin_registrant.cc
