@@ -6,6 +6,24 @@ import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+class PointData {
+  final Offset? offset;
+  final double? strokeWidth;
+
+  PointData(this.offset, this.strokeWidth);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PointData &&
+          runtimeType == other.runtimeType &&
+          offset == other.offset &&
+          strokeWidth == other.strokeWidth;
+
+  @override
+  int get hashCode => offset.hashCode ^ strokeWidth.hashCode;
+}
+
 void main() {
   runApp(const MyApp());
 }
@@ -49,19 +67,31 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   WebSocketChannel? _clientChannel;
   String _ipAddress = 'Fetching IP...';
   String _status = 'Server not running';
-  final List<Offset?> _points = <Offset?>[];
+  final List<PointData> _points = <PointData>[];
   Offset? _currentPosition;
   Size _whiteboardSize = Size.zero;
   final double _sensitivity = 10.0;
   final int _port = 8080;
 
+  final double _baseStrokeWidth = 5.0;
+  final double _minStrokeWidth = 1.0;
+  final double _maxStrokeWidth = 100.0;
+  final double _strokeWidthSensitivity = 5.0;
+
+  double _smoothedStrokeWidth = 5.0;
+  final double _strokeWidthSmoothingFactor = 0.2;
+
   final int _smoothingWindowSize = 1;
   final List<double> _recentDx = [];
   final List<double> _recentDy = [];
 
+  bool _isClientDrawing = false;
+  bool _wasClientDrawing = false;
+
   @override
   void initState() {
     super.initState();
+    _smoothedStrokeWidth = _baseStrokeWidth;
     _startServer();
   }
 
@@ -87,12 +117,14 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           _points.clear();
           _recentDx.clear();
           _recentDy.clear();
+          _smoothedStrokeWidth = _baseStrokeWidth;
+          _isClientDrawing = false;
+          _wasClientDrawing = false;
           if (_whiteboardSize != Size.zero) {
             _currentPosition = Offset(
               _whiteboardSize.width / 2,
               _whiteboardSize.height / 2,
             );
-            _points.add(_currentPosition);
           } else {
             _currentPosition = null;
           }
@@ -103,14 +135,27 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
           (message) {
             try {
               final data = jsonDecode(message);
+              if (data is Map<String, dynamic> &&
+                  data.containsKey('isDrawing') &&
+                  data['isDrawing'] is bool) {
+                _isClientDrawing = data['isDrawing'];
+              } else {
+                _isClientDrawing = false;
+                print('Received data missing "isDrawing" flag: $message');
+              }
+
               if (data is Map<String, dynamic> && data.containsKey('gyro')) {
                 final gyroData = data['gyro'];
                 if (gyroData is Map<String, dynamic> &&
-                    gyroData.containsKey('x') && gyroData['x'] is num &&
-                    gyroData.containsKey('y') && gyroData['y'] is num &&
-                    gyroData.containsKey('z') && gyroData['z'] is num) {
+                    gyroData.containsKey('x') &&
+                    gyroData['x'] is num &&
+                    gyroData.containsKey('y') &&
+                    gyroData['y'] is num &&
+                    gyroData.containsKey('z') &&
+                    gyroData['z'] is num) {
                   setState(() {
                     _updateDrawing(gyroData);
+                    _wasClientDrawing = _isClientDrawing;
                   });
                 } else {
                   print('Received gyro data in unexpected format: $gyroData');
@@ -126,8 +171,11 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             setState(() {
               _status = 'Client Disconnected';
               _clientChannel = null;
-              if (_points.isNotEmpty && _points.last != null) {
-                _points.add(null);
+              _isClientDrawing = false;
+              _wasClientDrawing = false;
+              _smoothedStrokeWidth = _baseStrokeWidth;
+              if (_points.isNotEmpty && _points.last.offset != null) {
+                _points.add(PointData(null, null));
               }
             });
             print('Client disconnected');
@@ -136,8 +184,11 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             setState(() {
               _status = 'Client Error: $error';
               _clientChannel = null;
-              if (_points.isNotEmpty && _points.last != null) {
-                _points.add(null);
+              _isClientDrawing = false;
+              _wasClientDrawing = false;
+              _smoothedStrokeWidth = _baseStrokeWidth;
+              if (_points.isNotEmpty && _points.last.offset != null) {
+                _points.add(PointData(null, null));
               }
             });
             print('Client error: $error');
@@ -160,22 +211,38 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
   }
 
   void _updateDrawing(Map<String, dynamic> gyroData) {
-    if (_currentPosition == null || _whiteboardSize == Size.zero) return;
+    if (_whiteboardSize == Size.zero) return;
+
+    _currentPosition ??= Offset(
+      _whiteboardSize.width / 2,
+      _whiteboardSize.height / 2,
+    );
+
+    final double gz = gyroData['z'];
+    double targetStrokeWidth =
+        _baseStrokeWidth + (gz * _strokeWidthSensitivity);
+    targetStrokeWidth = targetStrokeWidth.clamp(
+      _minStrokeWidth,
+      _maxStrokeWidth,
+    );
+    _smoothedStrokeWidth =
+        _smoothedStrokeWidth +
+        (targetStrokeWidth - _smoothedStrokeWidth) *
+            _strokeWidthSmoothingFactor;
+    _smoothedStrokeWidth = _smoothedStrokeWidth.clamp(
+      _minStrokeWidth,
+      _maxStrokeWidth,
+    );
 
     final double gx = gyroData['x'];
-    final double gz = gyroData['z'];
     final double rawDx = -gz * _sensitivity;
     final double rawDy = -gx * _sensitivity;
 
     _recentDx.add(rawDx);
     _recentDy.add(rawDy);
 
-    if (_recentDx.length > _smoothingWindowSize) {
-      _recentDx.removeAt(0);
-    }
-    if (_recentDy.length > _smoothingWindowSize) {
-      _recentDy.removeAt(0);
-    }
+    if (_recentDx.length > _smoothingWindowSize) _recentDx.removeAt(0);
+    if (_recentDy.length > _smoothingWindowSize) _recentDy.removeAt(0);
 
     final double smoothedDx =
         _recentDx.isEmpty
@@ -187,35 +254,43 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             : _recentDy.reduce((a, b) => a + b) / _recentDy.length;
 
     Offset newPosition = _currentPosition!.translate(smoothedDx, smoothedDy);
-
     newPosition = Offset(
       newPosition.dx.clamp(0.0, _whiteboardSize.width),
       newPosition.dy.clamp(0.0, _whiteboardSize.height),
     );
-
     _currentPosition = newPosition;
 
-    _points.add(_currentPosition);
+    if (_isClientDrawing) {
+      _points.add(PointData(_currentPosition, _smoothedStrokeWidth));
+    } else if (_wasClientDrawing) {
+      if (_points.isNotEmpty && _points.last.offset != null) {
+        _points.add(PointData(null, null));
+      }
+    }
 
     const int maxPoints = 5000;
     const int pointsToRemove = 1000;
     if (_points.length > maxPoints) {
-      _points.removeRange(0, pointsToRemove);
-      print('Optimized points list: ${_points.length} points remaining.');
+      int removalEnd = pointsToRemove;
+      while (removalEnd < _points.length &&
+          _points[removalEnd].offset == null) {
+        removalEnd++;
+      }
+      if (removalEnd < _points.length || removalEnd == pointsToRemove) {
+        _points.removeRange(0, removalEnd);
+        print('Optimized points list: ${_points.length} points remaining.');
+      } else {
+        print('Skipped optimization to prevent breaking line segment.');
+      }
     }
   }
 
   void _clearDrawing() {
     setState(() {
       _points.clear();
-      if (_whiteboardSize != Size.zero) {
-        _currentPosition = Offset(
-          _whiteboardSize.width / 2,
-          _whiteboardSize.height / 2,
-        );
-      } else {
-        _currentPosition = null;
-      }
+      _smoothedStrokeWidth = _baseStrokeWidth;
+      _isClientDrawing = false;
+      _wasClientDrawing = false;
     });
   }
 
@@ -235,8 +310,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('AirScribe Whiteboard'),
-        backgroundColor:
-            theme.colorScheme.surfaceVariant,
+        backgroundColor: theme.colorScheme.surfaceVariant,
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_sweep_outlined),
@@ -309,14 +383,19 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) {
                         setState(() {
+                          final oldSize = _whiteboardSize;
                           _whiteboardSize = newSize;
-                          if (_currentPosition == null &&
-                              _clientChannel != null) {
+                          if (_currentPosition != null &&
+                              oldSize != Size.zero) {
                             _currentPosition = Offset(
-                              _whiteboardSize.width / 2,
-                              _whiteboardSize.height / 2,
+                              _currentPosition!.dx.clamp(0.0, newSize.width),
+                              _currentPosition!.dy.clamp(0.0, newSize.height),
                             );
-                            if (_points.isEmpty) _points.add(_currentPosition);
+                          } else if (_currentPosition == null && isConnected) {
+                            _currentPosition = Offset(
+                              newSize.width / 2,
+                              newSize.height / 2,
+                            );
                           }
                         });
                       }
@@ -340,7 +419,16 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8.0),
                       child: CustomPaint(
-                        painter: WhiteboardPainter(points: _points),
+                        painter: WhiteboardPainter(
+                          points: _points,
+                          lineColor:
+                              theme.brightness == Brightness.dark
+                                  ? Colors.white
+                                  : Colors.black,
+                          pointerColor: theme.colorScheme.primary,
+                          currentPosition: _currentPosition,
+                          isClientConnected: isConnected,
+                        ),
                         size: _whiteboardSize,
                       ),
                     ),
@@ -356,29 +444,52 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
 }
 
 class WhiteboardPainter extends CustomPainter {
-  final List<Offset?> points;
+  final List<PointData> points;
   final Color lineColor;
-  final double strokeWidth;
+  final Color pointerColor;
+  final Offset? currentPosition;
+  final bool isClientConnected;
 
   WhiteboardPainter({
     required this.points,
-    this.lineColor = const Color.fromARGB(255, 255, 255, 255),
-    this.strokeWidth = 3.0,
+    required this.lineColor,
+    required this.pointerColor,
+    required this.currentPosition,
+    required this.isClientConnected,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint =
+    final linePaint =
         Paint()
           ..color = lineColor
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth = strokeWidth;
+          ..strokeCap = StrokeCap.round;
 
     for (int i = 0; i < points.length - 1; i++) {
-      if (points[i] != null && points[i + 1] != null) {
-        canvas.drawLine(points[i]!, points[i + 1]!, paint);
-      } else if (points[i] != null && points[i + 1] == null) {
+      final PointData currentPoint = points[i];
+      final PointData nextPoint = points[i + 1];
+
+      if (currentPoint.offset != null &&
+          nextPoint.offset != null &&
+          nextPoint.strokeWidth != null) {
+        linePaint.strokeWidth = nextPoint.strokeWidth!;
+        canvas.drawLine(currentPoint.offset!, nextPoint.offset!, linePaint);
       }
+    }
+
+    if (isClientConnected && currentPosition != null) {
+      final pointerPaint =
+          Paint()
+            ..color = pointerColor
+            ..style = PaintingStyle.fill;
+      canvas.drawCircle(currentPosition!, 5.0, pointerPaint);
+
+      final pointerOutlinePaint =
+          Paint()
+            ..color = lineColor.withOpacity(0.7)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5;
+      canvas.drawCircle(currentPosition!, 6.0, pointerOutlinePaint);
     }
   }
 
@@ -386,6 +497,8 @@ class WhiteboardPainter extends CustomPainter {
   bool shouldRepaint(covariant WhiteboardPainter oldDelegate) {
     return oldDelegate.points != points ||
         oldDelegate.lineColor != lineColor ||
-        oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.pointerColor != pointerColor ||
+        oldDelegate.currentPosition != currentPosition ||
+        oldDelegate.isClientConnected != isClientConnected;
   }
 }

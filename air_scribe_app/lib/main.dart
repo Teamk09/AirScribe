@@ -23,7 +23,10 @@ class MyApp extends StatelessWidget {
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
         brightness: Brightness.dark,
       ),
       themeMode: ThemeMode.system,
@@ -47,8 +50,9 @@ class _SensorPageState extends State<SensorPage> {
   StreamSubscription? _userAccelerometerSubscription;
   String _status = 'Connecting...';
   GyroscopeEvent? _gyroscopeEvent;
-  UserAccelerometerEvent? _userAccelerometerEvent; 
+  UserAccelerometerEvent? _userAccelerometerEvent;
   late String _serverUrl;
+  bool _isDrawing = false;
 
   final Duration _samplingPeriod = Duration(milliseconds: 50);
 
@@ -67,20 +71,28 @@ class _SensorPageState extends State<SensorPage> {
         _status = 'Connected to $_serverUrl';
       });
       _channel?.stream.listen(
-        (message) { print('Received: $message'); },
+        (message) {
+          print('Received: $message');
+        },
         onDone: () {
-          setState(() { _status = 'Disconnected'; });
+          setState(() {
+            _status = 'Disconnected';
+          });
           print('WebSocket disconnected');
           _reconnectWebSocket();
         },
         onError: (error) {
-          setState(() { _status = 'Connection Error: $error'; });
+          setState(() {
+            _status = 'Connection Error: $error';
+          });
           print('WebSocket error: $error');
           _reconnectWebSocket();
         },
       );
     } catch (e) {
-      setState(() { _status = 'Connection Failed: $e'; });
+      setState(() {
+        _status = 'Connection Failed: $e';
+      });
       print('Failed to connect: $e');
       _reconnectWebSocket();
     }
@@ -89,44 +101,57 @@ class _SensorPageState extends State<SensorPage> {
   void _reconnectWebSocket() {
     print('Attempting to reconnect in 5 seconds...');
     Future.delayed(const Duration(seconds: 5), () {
-       if (mounted) _connectWebSocket();
+      if (mounted) _connectWebSocket();
     });
   }
 
   void _startSensorListeners() {
-    _gyroscopeSubscription = gyroscopeEventStream(samplingPeriod: _samplingPeriod).listen(
+    _gyroscopeSubscription = gyroscopeEventStream(
+      samplingPeriod: _samplingPeriod,
+    ).listen(
       (GyroscopeEvent event) {
         setState(() {
           _gyroscopeEvent = event;
         });
-        _sendSensorData(); 
+        _sendSensorData();
       },
       onError: (error) {
         print('Gyroscope error: $error');
-        setState(() { _status = 'Gyroscope Error: $error'; });
+        setState(() {
+          _status = 'Gyroscope Error: $error';
+        });
       },
       cancelOnError: true,
     );
     print('Gyroscope listener started with samplingPeriod: $_samplingPeriod.');
 
-    _userAccelerometerSubscription = userAccelerometerEventStream(samplingPeriod: _samplingPeriod).listen(
+    _userAccelerometerSubscription = userAccelerometerEventStream(
+      samplingPeriod: _samplingPeriod,
+    ).listen(
       (UserAccelerometerEvent event) {
         setState(() {
           _userAccelerometerEvent = event;
         });
-        _sendSensorData(); 
+        _sendSensorData();
       },
       onError: (error) {
         print('User Accelerometer error: $error');
-        setState(() { _status = 'Accelerometer Error: $error'; });
+        setState(() {
+          _status = 'Accelerometer Error: $error';
+        });
       },
       cancelOnError: true,
     );
-    print('User Accelerometer listener started with samplingPeriod: $_samplingPeriod.');
+    print(
+      'User Accelerometer listener started with samplingPeriod: $_samplingPeriod.',
+    );
   }
 
   void _sendSensorData() {
-    if (_channel != null && _channel?.closeCode == null && _gyroscopeEvent != null && _userAccelerometerEvent != null) {
+    if (_channel != null &&
+        _channel?.closeCode == null &&
+        _gyroscopeEvent != null &&
+        _userAccelerometerEvent != null) {
       final data = {
         'gyro': {
           'x': _gyroscopeEvent!.x,
@@ -138,25 +163,48 @@ class _SensorPageState extends State<SensorPage> {
           'y': _userAccelerometerEvent!.y,
           'z': _userAccelerometerEvent!.z,
         },
+        'isDrawing': _isDrawing,
       };
       _channel?.sink.add(jsonEncode(data));
     }
   }
 
-
   @override
   void dispose() {
     _gyroscopeSubscription?.cancel();
-    _userAccelerometerSubscription?.cancel(); 
+    _userAccelerometerSubscription?.cancel();
     _channel?.sink.close();
     print('Listeners stopped and WebSocket closed.');
     super.dispose();
   }
 
+  void _handleTouchDown(dynamic details) {
+    if (!_isDrawing) {
+      setState(() {
+        _isDrawing = true;
+      });
+      _sendSensorData();
+      print("Touch Down: Drawing TRUE");
+    }
+  }
+
+  void _handleTouchUp(dynamic details) {
+    if (_isDrawing) {
+      setState(() {
+        _isDrawing = false;
+      });
+      _sendSensorData();
+      print("Touch Up: Drawing FALSE");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    bool isConnected = _channel != null && _channel?.closeCode == null && _status.startsWith('Connected');
+    bool isConnected =
+        _channel != null &&
+        _channel?.closeCode == null &&
+        _status.startsWith('Connected');
 
     return Scaffold(
       appBar: AppBar(
@@ -171,73 +219,109 @@ class _SensorPageState extends State<SensorPage> {
           ),
         ],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Card(
-            elevation: 4.0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        isConnected ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
-                        color: isConnected ? Colors.green : theme.colorScheme.error,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _status,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: isConnected ? Colors.green : theme.colorScheme.error,
-                          ),
-                          textAlign: TextAlign.center,
-                          overflow: TextOverflow.ellipsis,
+      body: GestureDetector(
+        onTapDown: _handleTouchDown,
+        onTapUp: _handleTouchUp,
+        onPanStart: _handleTouchDown,
+        onPanEnd: _handleTouchUp,
+        onPanCancel: () => _handleTouchUp(null),
+        behavior: HitTestBehavior.opaque,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Card(
+              elevation: 4.0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.0),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isConnected
+                              ? Icons.check_circle_outline_rounded
+                              : Icons.error_outline_rounded,
+                          color:
+                              isConnected
+                                  ? Colors.green
+                                  : theme.colorScheme.error,
+                          size: 20,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Divider(height: 1, color: theme.dividerColor.withOpacity(0.5)),
-                  const SizedBox(height: 16),
-
-                  Text('Gyroscope', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  if (_gyroscopeEvent != null)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildSensorAxis('X', _gyroscopeEvent!.x, theme),
-                        _buildSensorAxis('Y', _gyroscopeEvent!.y, theme),
-                        _buildSensorAxis('Z', _gyroscopeEvent!.z, theme),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _status,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color:
+                                  isConnected
+                                      ? Colors.green
+                                      : theme.colorScheme.error,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ],
-                    )
-                  else
-                    _buildWaitingIndicator(theme),
+                    ),
+                    const SizedBox(height: 16),
+                    Divider(
+                      height: 1,
+                      color: theme.dividerColor.withOpacity(0.5),
+                    ),
+                    const SizedBox(height: 16),
 
-                  const SizedBox(height: 16),
+                    Text('Gyroscope', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    if (_gyroscopeEvent != null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildSensorAxis('X', _gyroscopeEvent!.x, theme),
+                          _buildSensorAxis('Y', _gyroscopeEvent!.y, theme),
+                          _buildSensorAxis('Z', _gyroscopeEvent!.z, theme),
+                        ],
+                      )
+                    else
+                      _buildWaitingIndicator(theme),
 
-                  Text('User Accelerometer', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  if (_userAccelerometerEvent != null)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildSensorAxis('X', _userAccelerometerEvent!.x, theme),
-                        _buildSensorAxis('Y', _userAccelerometerEvent!.y, theme),
-                        _buildSensorAxis('Z', _userAccelerometerEvent!.z, theme),
-                      ],
-                    )
-                  else
-                    _buildWaitingIndicator(theme),
-                ],
+                    const SizedBox(height: 16),
+
+                    Text(
+                      'User Accelerometer',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    if (_userAccelerometerEvent != null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildSensorAxis(
+                            'X',
+                            _userAccelerometerEvent!.x,
+                            theme,
+                          ),
+                          _buildSensorAxis(
+                            'Y',
+                            _userAccelerometerEvent!.y,
+                            theme,
+                          ),
+                          _buildSensorAxis(
+                            'Z',
+                            _userAccelerometerEvent!.z,
+                            theme,
+                          ),
+                        ],
+                      )
+                    else
+                      _buildWaitingIndicator(theme),
+                  ],
+                ),
               ),
             ),
           ),
@@ -249,7 +333,12 @@ class _SensorPageState extends State<SensorPage> {
   Widget _buildSensorAxis(String axis, double value, ThemeData theme) {
     return Column(
       children: [
-        Text(axis, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary)),
+        Text(
+          axis,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.primary,
+          ),
+        ),
         const SizedBox(height: 2),
         Text(value.toStringAsFixed(2), style: theme.textTheme.bodyMedium),
       ],
@@ -257,13 +346,17 @@ class _SensorPageState extends State<SensorPage> {
   }
 
   Widget _buildWaitingIndicator(ThemeData theme) {
-     return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 8),
-          Text('Waiting...', style: theme.textTheme.bodySmall),
-        ],
-      );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 8),
+        Text('Waiting...', style: theme.textTheme.bodySmall),
+      ],
+    );
   }
 }
