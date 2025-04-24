@@ -133,6 +133,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
 
         webSocket.stream.listen(
           (message) {
+            // Step 1: Sensing (Indirect) - Receive sensor data packet from the client app via WebSocket.
             try {
               final data = jsonDecode(message);
               if (data is Map<String, dynamic> &&
@@ -218,6 +219,9 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
       _whiteboardSize.height / 2,
     );
 
+    // Step 2: Preprocessing & Step 3: Feature Extraction (Stroke Width)
+    // Use gyro 'z' data to calculate target stroke width.
+    // Apply smoothing (preprocessing) to the stroke width.
     final double gz = gyroData['z'];
     double targetStrokeWidth =
         _baseStrokeWidth + (gz * _strokeWidthSensitivity);
@@ -225,6 +229,7 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
       _minStrokeWidth,
       _maxStrokeWidth,
     );
+    // Smoothing (Preprocessing)
     _smoothedStrokeWidth =
         _smoothedStrokeWidth +
         (targetStrokeWidth - _smoothedStrokeWidth) *
@@ -234,6 +239,8 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
       _maxStrokeWidth,
     );
 
+    // Step 2: Preprocessing & Step 3: Feature Extraction (Position Change)
+    // Use gyro 'x' and 'z' to calculate raw displacement (dx, dy).
     final double gx = gyroData['x'];
     final double rawDx = -gz * _sensitivity;
     final double rawDy = -gx * _sensitivity;
@@ -253,6 +260,8 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
             ? 0.0
             : _recentDy.reduce((a, b) => a + b) / _recentDy.length;
 
+    // Step 4: Inference/Application - Update the drawing based on extracted features.
+    // Update cursor position using smoothed displacement features.
     Offset newPosition = _currentPosition!.translate(smoothedDx, smoothedDy);
     newPosition = Offset(
       newPosition.dx.clamp(0.0, _whiteboardSize.width),
@@ -419,6 +428,9 @@ class _WhiteboardPageState extends State<WhiteboardPage> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8.0),
                       child: CustomPaint(
+                        // Step 4: Inference/Application - Render the drawing on the canvas.
+                        // The painter uses the list of points (_points), current position,
+                        // and connection status to draw lines and the pointer.
                         painter: WhiteboardPainter(
                           points: _points,
                           lineColor:
@@ -460,6 +472,7 @@ class WhiteboardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Step 4: Inference/Application - Actual drawing logic based on processed data.
     final linePaint =
         Paint()
           ..color = lineColor

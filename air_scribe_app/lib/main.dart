@@ -15,6 +15,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'AirScribe Sensor App',
       theme: ThemeData(
         useMaterial3: true,
@@ -106,6 +107,8 @@ class _SensorPageState extends State<SensorPage> {
   }
 
   void _startSensorListeners() {
+// Step 1: Sensing - Start listening to raw sensor data streams (Gyroscope and Accelerometer).
+    // The samplingPeriod influences the rate of data acquisition.
     _gyroscopeSubscription = gyroscopeEventStream(
       samplingPeriod: _samplingPeriod,
     ).listen(
@@ -152,6 +155,11 @@ class _SensorPageState extends State<SensorPage> {
         _channel?.closeCode == null &&
         _gyroscopeEvent != null &&
         _userAccelerometerEvent != null) {
+// Step 2: Preprocessing - Minimal in this app. Raw sensor values are used directly.
+      // Setting the sampling rate in _startSensorListeners is a form of controlling input data quality.
+
+      // Step 3: Feature Extraction - Package the relevant sensor data (gyro, accel)
+      // and the user's drawing intention (_isDrawing, derived from touch input) into a structured format (JSON).
       final data = {
         'gyro': {
           'x': _gyroscopeEvent!.x,
@@ -165,6 +173,9 @@ class _SensorPageState extends State<SensorPage> {
         },
         'isDrawing': _isDrawing,
       };
+
+      // Step 4: Inference/Application - The primary action here is transmitting the
+      // extracted features (sensor data + drawing state) to the server application.
       _channel?.sink.add(jsonEncode(data));
     }
   }
@@ -178,6 +189,7 @@ class _SensorPageState extends State<SensorPage> {
     super.dispose();
   }
 
+// Step 1: Sensing - Capture user touch input to determine drawing intention.
   void _handleTouchDown(dynamic details) {
     if (!_isDrawing) {
       setState(() {
@@ -188,6 +200,7 @@ class _SensorPageState extends State<SensorPage> {
     }
   }
 
+// Step 1: Sensing - Capture user touch release to update drawing intention.
   void _handleTouchUp(dynamic details) {
     if (_isDrawing) {
       setState(() {
@@ -220,6 +233,7 @@ class _SensorPageState extends State<SensorPage> {
         ],
       ),
       body: GestureDetector(
+// Step 1: Sensing - The GestureDetector captures raw touch events (down, up, pan).
         onTapDown: _handleTouchDown,
         onTapUp: _handleTouchUp,
         onPanStart: _handleTouchDown,
@@ -248,9 +262,10 @@ class _SensorPageState extends State<SensorPage> {
                               ? Icons.check_circle_outline_rounded
                               : Icons.error_outline_rounded,
                           color:
-                              isConnected
-                                  ? Colors.green
-                                  : theme.colorScheme.error,
+                     
+                                      isConnected
+                                      ? Colors.green
+                                      : theme.colorScheme.error,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -258,9 +273,10 @@ class _SensorPageState extends State<SensorPage> {
                           child: Text(
                             _status,
                             style: theme.textTheme.titleMedium?.copyWith(
-                              color:
-                                  isConnected
-                                      ? Colors.green
+                    
+                                           color:
+                                      isConnected
+                                          ? Colors.green
                                       : theme.colorScheme.error,
                             ),
                             textAlign: TextAlign.center,
